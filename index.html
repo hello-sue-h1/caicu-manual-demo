@@ -197,6 +197,28 @@ main{flex:1;min-width:0}
   border-left:4px solid var(--c-accent);border-radius:10px;padding:16px 18px;
   font-size:14px;line-height:1.85;color:var(--c-ink2);white-space:pre-wrap;word-break:break-word}
 @media print{.desc{background:#fff;border-left-color:#999}}
+/* ── 설명 글의 표 모양 (descHtml 이 만든다) — 왼쪽 소제목 · 오른쪽 목록 ── */
+.mmd .fig + .dt,.mmd .dt + .fig,.mmd .dt + .dt{margin-top:16px}
+.dt{margin-top:16px;border:1px solid var(--c-line);border-radius:10px;overflow:hidden;
+  font-size:14px;line-height:1.7;color:var(--c-ink2);background:var(--c-card)}
+.dt-r{display:grid;grid-template-columns:150px minmax(0,1fr);border-top:1px solid var(--c-line)}
+.dt > :first-child{border-top:0}
+.dt-h{background:var(--c-fill);padding:12px 14px;font-weight:700;color:var(--c-ink);
+  border-right:1px solid var(--c-line);text-wrap:balance;word-break:keep-all}
+.dt-c{padding:11px 16px;white-space:pre-wrap;word-break:break-word;min-width:0}
+.dt-free .dt-c{grid-column:1/-1}
+.dt-band{background:var(--c-accent-soft);color:var(--c-accent-deep);font-weight:700;
+  padding:9px 14px;border-top:1px solid var(--c-line);font-size:13.5px;letter-spacing:.02em}
+.dt ul{margin:0;padding-left:18px}
+.dt ul ul{padding-left:16px;margin:2px 0 4px}
+.dt li{margin:2px 0}
+.dt li.nomark{list-style:none;margin-left:-18px}
+.dt p{margin:0 0 4px}
+@media (max-width:760px){
+  .dt-r{grid-template-columns:1fr}
+  .dt-h{border-right:0;border-bottom:1px dashed var(--c-line);padding:9px 14px}
+}
+@media print{.dt-h{background:#f2f2f2} .dt-band{background:#eef2f7;color:#333}}
 .kw{margin-top:14px;font-size:12.5px;color:var(--c-dim)}
 .kw b{color:var(--c-ink2);font-weight:600}
 
@@ -2371,6 +2393,49 @@ let allOpen = false;
 const byCat = (n) => D.diagrams.filter((d) => d.cat === n);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// ── 설명 글 → 표 (2026-09-02 희수) ─────────────────────────────────────
+// 원고는 그대로 글이다. ■ 소제목 · 항목 - 세부 라는 기호 규칙을 화면이 읽어
+// 왼쪽 칸 소제목, 오른쪽 칸 목록의 표로 그린다. 회색 한 덩어리로 보이던 글에서
+// 소제목이 묻힌다는 지적(휴대폰·PC 모두)이 계기. 원고를 표로 바꾸게 하지 않은 이유:
+// 위원들이 메모장으로 쓰는 편리함을 잃고, 두 겹 목록을 표 칸에 못 넣는다.
+// 규칙에 안 맞는 줄(번호 목록·자유 문장)도 버리지 않고 그 자리에 그대로 그린다.
+function descHtml(text) {
+  const secs = []; let cur = null;
+  const open = (kind, title) => { cur = { kind, title, items: [] }; secs.push(cur); };
+  for (const raw of String(text).split("\n")) {
+    const line = raw.replace(/\s+$/, "");
+    if (!line.trim()) continue;
+    let m;
+    if ((m = line.match(/^\s*═+\s*(.+?)\s*═+$/))) { open("band", m[1]); cur = null; continue; }   // 큰 구분 띠
+    if ((m = line.match(/^\s*■\s*(.+)$/)))        { open("sec", m[1]); continue; }               // 소제목 = 왼쪽 칸
+    if (!cur) open("free", "");                                                                  // 소제목 없는 앞머리
+    const ind = line.match(/^\s*/)[0].length;
+    if ((m = line.match(/^\s*[·•]\s*(.*)$/)))      { cur.items.push({ lvl: 1, text: m[1] }); continue; }
+    if ((m = line.match(/^\s*[-–]\s+(.*)$/)))      { cur.items.push({ lvl: 2, text: m[1] }); continue; }
+    if ((m = line.match(/^\s*((?:\d+[.)]|[①-⑳]|[가-힣][.)])\s*)(.*)$/)))                        // 1. 2) ① 가) 는 번호 그대로
+      { cur.items.push({ lvl: ind >= 3 ? 2 : 1, text: m[1] + m[2], num: true }); continue; }
+    if (cur.items.length && ind >= 2)                                                             // 들여쓴 줄 = 윗줄의 이어짐
+      { cur.items[cur.items.length - 1].text += "\n" + line.trim(); continue; }
+    cur.items.push({ lvl: 0, text: line.trim() });                                                // 그냥 문장
+  }
+  const list = (items) => {
+    let h = "", depth = 0;
+    const closeTo = (d) => { while (depth > d) { h += "</ul>"; depth--; } };
+    items.forEach((it) => {
+      if (it.lvl === 0) { closeTo(0); h += `<p>${esc(it.text)}</p>`; return; }
+      if (it.lvl > depth) { while (depth < it.lvl) { h += "<ul>"; depth++; } }
+      else closeTo(it.lvl);
+      h += `<li${it.num ? ' class="nomark"' : ""}>${esc(it.text)}</li>`;
+    });
+    closeTo(0);
+    return h;
+  };
+  return `<div class="dt">` + secs.map((sc) =>
+    sc.kind === "band" ? `<div class="dt-band">${esc(sc.title)}</div>`
+  : sc.kind === "sec"  ? `<div class="dt-r"><div class="dt-h">${esc(sc.title)}</div><div class="dt-c">${list(sc.items)}</div></div>`
+  :                      `<div class="dt-r dt-free"><div class="dt-c">${list(sc.items)}</div></div>`).join("") + `</div>`;
+}
 const terms = () => q.toLowerCase().split(/\s+/).filter(Boolean);
 
 // 검색어 강조 — 이미 만든 태그(<mark>) 안은 건드리지 않게 조각내서 치환
@@ -2596,7 +2661,7 @@ async function viewDetail() {
   const blockHtml = b =>
     b.kind === "사진"   ? `<div class="fig"><img class="pic" src="${PICS[b.image] || ("assets/pics/" + encodeURIComponent(b.image))}" alt="${esc(d.title)}"></div>`
   : b.kind === "흐름도" ? `<div class="fig"><pre class="mermaid">${esc(b.mermaid)}</pre></div>`
-  :                       `<div class="desc">${esc(b.text)}</div>`;
+  :                       descHtml(b.text);
   $main.innerHTML = `<div class="detail rise">
     <div class="printhead">CAICU 간호업무 매뉴얼 · ${esc(d.cat)} ${d.no} ${esc(d.title)}
       · 최종 갱신 ${D.built} · 출력본은 사본입니다. 최신본은 화면에서 확인하세요</div>
